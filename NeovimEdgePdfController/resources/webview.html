@@ -1,0 +1,208 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Title</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.min.mjs" type="module"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf_viewer.min.css" integrity="sha512-qbvpAGzPFbd9HG4VorZWXYAkAnbwKIxiLinTA1RW8KGJEZqYK04yjvd+Felx2HOeKPDKVLetAqg8RIJqHewaIg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+        <script>
+            pdfdata = atob('%embeddata%')
+        </script>
+        <script type="module">
+            // If absolute URL from the remote server is provided, configure the CORS
+            // header on that server.
+
+            // Loaded via <script> tag, create shortcut to access PDF.js exports.
+            var { pdfjsLib } = globalThis;
+
+            // The workerSrc property shall be specified.
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.worker.mjs'; // '//mozilla.github.io/pdf.js/build/pdf.worker.mjs';
+
+            var pdfDoc = null,
+                pageNum = 1,
+                pageRendering = false,
+                pageNumPending = null,
+                scale = 0.8,
+                canvas = document.getElementById('the-canvas'),
+                ctx = canvas.getContext('2d');
+
+            /**
+             * Get page info from document, resize canvas accordingly, and render page.
+             * @param num Page number.
+             */
+            function renderPage(num) {
+                pageRendering = true;
+                // Using promise to fetch the page
+                pdfDoc.getPage(num).then(function(page) {
+                    //const desiredWidth =  window.innerWidth - 0.01*window.innerWidth;
+                    const desiredWidth = parseFloat(getComputedStyle(document.getElementById('canvas-container')).width.slice(0, -2));
+                    const original_viewport = page.getViewport({scale: 1.0});
+                    const scale =  desiredWidth / original_viewport.width;
+                    var viewport = page.getViewport({scale: scale});
+
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    // Render PDF page into canvas context
+                    var renderContext = {
+                        canvasContext: ctx,
+                        viewport: viewport
+                    };
+                    var renderTask = page.render(renderContext);
+
+                    // Wait for rendering to finish
+                    renderTask.promise.then(function() {
+                        pageRendering = false;
+                        if (pageNumPending !== null) {
+                            // New page rendering is pending
+                            renderPage(pageNumPending);
+                            pageNumPending = null;
+                        }
+                    });
+                });
+            }
+
+            /**
+             * If another page rendering in progress, waits until the rendering is
+             * finised. Otherwise, executes rendering immediately.
+             */
+            function queueRenderPage(num) {
+                if (pageRendering) {
+                    pageNumPending = num;
+                } else {
+                    renderPage(num);
+                }
+            }
+
+            function set_page(page){
+                if(page < 1 || page >= pdfDoc.numPages){
+                    throw new Error(`Page outside of allowed range [1-${pdfDoc.numPages}]`)
+                }
+
+                pageNum = page;
+                queueRenderPage(pageNum);
+            }
+
+            /**
+             * Displays previous page.
+             */
+            function prev_page() {
+                pageNum = pageNum - 1;
+                set_page(pageNum);
+            }
+            
+            /**
+             * Displays next page.
+             */
+            function next_page() {
+                pageNum = pageNum + 1;
+                set_page(pageNum);
+            }
+
+            /**
+             * Asynchronously downloads PDF.
+             */
+            pdfjsLib.getDocument({data: pdfdata}).promise.then(function(pdfDoc_) {
+                pdfDoc = pdfDoc_;
+
+                // Initial/first page rendering
+                renderPage(pageNum);
+            });
+
+            // External api
+            window.next_page = next_page;
+            window.prev_page = prev_page;
+            window.set_page = (num) => {
+                pageNum = num;
+                queueRenderPage(pageNum);
+            }
+
+            /** @typedef Message {string} */
+            /** @typedef Result {ok: boolean, message: string} */
+            /** @typedef Condition {((message: Message) => boolean)} */
+            /** @typedef Handler {(message: Message) => boolean|Result|undefined|null} */
+
+            /**
+             * 
+             * @param condition {Condition}
+             * @param handler {Handler}
+             * @return {Handler}
+             */
+            function conditional_handler(condition, handler){
+                return (message) => {
+                    console.log(message, condition(message));
+                    if(condition(message)){
+                        return handler(message);
+                    }
+                    
+                    return false;
+                }
+            }
+            
+            /** @type {Handler[]} */
+            const handlers = [];
+            
+            let init = false;
+            function setup(){
+                handlers.push(conditional_handler((msg) => msg === 'page:next', () => {
+                    next_page();
+                    return {
+                        ok: true,
+                        message: 'page:next'
+                    }
+                }));
+                handlers.push(conditional_handler((msg) => msg === 'page:prev', () => {
+                    prev_page();
+                    return {
+                        ok: true,
+                        message: 'page:prev'
+                    }
+                }));
+                
+                const set_page_regex = /page:([0-9]+)/;
+                handlers.push(conditional_handler((msg) => set_page_regex.test(msg), (msg) => {
+                    const page_number = msg.match(set_page_regex)[1];
+                    set_page(parseInt(page_number));
+                    
+                    return {
+                        ok: true,
+                        message: msg
+                    };
+                }));
+                
+                init = true;
+            }
+            
+            /** @param message {string} */
+            window.handle_message = (message) => {
+                console.log("message", message);
+                if(!init){
+                    setup();
+                }
+
+                message = message.trim();
+                for(const handler of handlers){
+                    try {
+                        const result = handler(message);
+                        if(result !== false){
+                            return result;
+                        }
+                    }
+                    catch (e){
+                        console.error(e.message);
+                        return {
+                            ok: false,
+                            message: e.message
+                        }
+                    }
+                }
+            }
+        </script>
+    </head>
+    <body>
+        <div id="canvas-container">
+            <canvas id="the-canvas"></canvas>
+        </div>
+    </body>
+</html>

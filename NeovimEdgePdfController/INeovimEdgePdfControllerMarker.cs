@@ -1,0 +1,3 @@
+﻿namespace NeovimEdgePdfController;
+
+public interface INeovimEdgePdfControllerMarker;

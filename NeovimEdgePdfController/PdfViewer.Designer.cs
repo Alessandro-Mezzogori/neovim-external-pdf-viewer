@@ -37,6 +37,7 @@ partial class PdfViewer
         AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
         ClientSize = new System.Drawing.Size(800, 450);
         Text = "Pdf viewer";
+        Load += PdfViewer_Load;
         ResumeLayout(false);
     }
 
