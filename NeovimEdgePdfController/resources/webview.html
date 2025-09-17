@@ -77,7 +77,7 @@
 
             function set_page(page){
                 if(page < 1 || page >= pdfDoc.numPages){
-                    throw new Error(`Page outside of allowed range [1-${pdfDoc.numPages}]`)
+                    throw new Error(`Page outside of allowed range [1-${pdfDoc.numPages - 1}]`)
                 }
 
                 pageNum = page;

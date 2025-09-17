@@ -23,7 +23,8 @@ public class PdfController
     }
     
     public Task ResizeCanvas()
-    { 
+    {
+        return Task.CompletedTask;
         return Execute("""
                      let canvas = document.getElementById('the-canvas');
                      canvas.width = window.screen.width;
